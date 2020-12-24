@@ -470,7 +470,7 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "d:f:v"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "d:f:vh"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
@@ -478,6 +478,15 @@ int main(int argc, char *argv[])
          printf("Overriding frequency to %luMHz\n", freq);
       } else if (cmd == 'v') {
          debug_mode = 1;
+      } else if (cmd == 'h') {
+         fprintf(stderr,
+               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-v]\n"
+               "\n"
+               "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
+               "\tfrequency, center frequency expressed in MHz\n"
+         );
+         return -1;
+
       }
    }
 
