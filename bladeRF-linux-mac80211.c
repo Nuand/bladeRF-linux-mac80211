@@ -306,6 +306,7 @@ int set_new_frequency(unsigned long freq) {
 }
 int config_bladeRF(char *dev_str) {
    int status = 0;
+   struct bladerf_version fpga_ver;
    const int num_buffers = 4096;
    const int num_dwords_buffer = 4096; // 4096 bytes
    const int num_transfers = 16;
@@ -321,6 +322,18 @@ int config_bladeRF(char *dev_str) {
       return status;
    }
 
+   status = bladerf_fpga_version(bladeRF_dev, &fpga_ver);
+   if (status != 0) {
+      printf("Could not query FPGA version, error=%d\n", status);
+      return status;
+   }
+
+   if (fpga_ver.major == 0 && fpga_ver.minor < 12) {
+      printf("FPGA version %d.%d.%d detected, "
+            "however at minimum FPGA version 0.12.0 is required.\n",
+            fpga_ver.major, fpga_ver.minor, fpga_ver.patch);
+      return -1;
+   }
 
    status = bladerf_sync_config(bladeRF_dev, BLADERF_RX_X1,
                      BLADERF_FORMAT_PACKET_META, num_buffers, num_dwords_buffer,
@@ -430,6 +443,13 @@ void *rx_thread(void *arg) {
    }
 }
 
+#ifndef LIBBLADERF_API_VERSION
+#error LIBBLADERF_API_VERSION is not defined in headers. At minimum libbladeRF version 2.4.0 is required.
+#endif
+#if ( LIBBLADERF_API_VERSION < 0x2040000 )
+#error Incompatible libbladeRF header version. At minimum libbladeRF version 2.4.0 is required.
+#endif
+
 int main(int argc, char *argv[])
 {
    int status;
@@ -439,6 +459,15 @@ int main(int argc, char *argv[])
    char cmd;
 
    pthread_mutex_init(&log_mutex, NULL);
+   struct bladerf_version ver;
+
+   bladerf_version(&ver);
+   if (ver.major < 2 || (ver.major == 2 && ver.minor < 4)) {
+      printf("Incorrect version (%d.%d.%d) of libbladeRF detected.\n"
+             "At minimum libbladeRF version 2.4.0 is required.\n",
+             ver.major, ver.minor, ver.patch);
+      return -1;
+   }
 
    char *dev_str = NULL;
    while (-1 != ( cmd = getopt(argc, argv, "d:f:v"))) {
