@@ -387,6 +387,51 @@ int config_bladeRF(char *dev_str) {
    return 0;
 }
 
+int receive_test() {
+   uint8_t *data = malloc(4096 * 16);
+   memset(data, 0, 4096 * 16);
+   uint8_t *lut = 0;
+   uint32_t max_cnt = 0;
+   uint32_t tmp;
+   int status;
+   while(1) {
+      struct bladerf_metadata meta;
+      struct bladeRF_wiphy_header_rx *bwh_r = (struct bladeRF_wiphy_header_rx *)data;
+      memset(&meta, '0', sizeof(meta));
+      if (!max_cnt)
+         fprintf(stderr, "Awaiting first benchmark packet.");
+      status = bladerf_sync_rx(bladeRF_dev, data, 1000, &meta, max_cnt ? 2500 : 0);
+      if (status == -6) {
+         int i;
+         int cnt = 0;
+         for (i = 0; i < max_cnt; i++) {
+            if (lut[i])
+               cnt++;
+         }
+         printf("Packet success rate: %f %%\n", 100*((float)cnt)/max_cnt);
+         return 0;
+      } else if (status) {
+         return -1;
+      }
+      if (bwh_r->len-4 < 32)
+         continue;
+      if (memcmp(data+16, "\x12\x34\x56\x78", 4))
+         continue;
+      if (!lut) {
+         max_cnt = *(uint32_t *)(data+16+28);
+         lut = (uint8_t *)malloc(sizeof(uint8_t) * max_cnt);
+         if (!lut)
+            return -1;
+         memset(lut, 0, sizeof(uint8_t) * max_cnt);
+      }
+      tmp = *(uint32_t *)(data+16+32);
+      if (tmp > max_cnt)
+         continue;
+      lut[tmp] = 1;
+      fprintf(stderr, "\r%d / %d                       \r", tmp, max_cnt);
+   }
+}
+
 void *rx_thread(void *arg) {
 
    bladerf_trim_dac_write(bladeRF_dev, 0x0ea8);
@@ -443,6 +488,26 @@ void *rx_thread(void *arg) {
    }
 }
 
+int transmit_test(uint32_t count, int mod, int length) {
+   int i;
+   char *data;
+
+   data = (char *)malloc(length + 40);
+   memset(data, 0, length + 40);
+   memcpy(data, "\x12\x34\x56\x78", 4);
+   memset(data+4, 0xff, 18);
+   memcpy(data+28, &count, sizeof(count));
+
+   printf("Sending %d packets at %d modulation and %d bytes long:\n", count, mod, length);
+   for (i = 0; i < count; i++) {
+      memcpy(data+32, &i, sizeof(i));
+      if (bladerf_tx_frame(data, length, mod, 0xbd81))
+         return -1;
+   }
+   sleep(5);
+   return 0;
+}
+
 #ifndef LIBBLADERF_API_VERSION
 #error LIBBLADERF_API_VERSION is not defined in headers. At minimum libbladeRF version 2.4.0 is required.
 #endif
@@ -456,6 +521,13 @@ int main(int argc, char *argv[])
    struct nl_cb *netlink_cb = NULL;
    void *ret_ptr = NULL;
    unsigned long freq = 0;
+   int trx_test = 0;
+#define TRX_TEST_NONE 0
+#define TRX_TEST_RX   1
+#define TRX_TEST_TX   2
+   int tx_mod = 0;
+   int tx_count = 100;
+   int tx_len = 200;
    char cmd;
 
    pthread_mutex_init(&log_mutex, NULL);
@@ -470,18 +542,28 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "d:f:vh"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:vh"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
          freq = atol(optarg);
          printf("Overriding frequency to %luMHz\n", freq);
+      } else if (cmd == 'r') {
+         trx_test = TRX_TEST_RX;
+      } else if (cmd == 'c') {
+         tx_count = atol(optarg);
+      } else if (cmd == 'l') {
+         tx_len = atol(optarg);
+      } else if (cmd == 't') {
+         trx_test = TRX_TEST_TX;
+         tx_mod = atol(optarg);
       } else if (cmd == 'v') {
          debug_mode = 1;
       } else if (cmd == 'h') {
          fprintf(stderr,
-               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-v]\n"
+               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-t <tx test modulation>] [-c count] [-l length] [-v]\n"
                "\n"
+               "\t\n"
                "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
                "\tfrequency, center frequency expressed in MHz\n"
          );
@@ -492,6 +574,20 @@ int main(int argc, char *argv[])
 
    if (config_bladeRF(dev_str)) {
       return -1;
+   }
+
+   if (trx_test != TRX_TEST_NONE) {
+      status = set_new_frequency(freq);
+      force_freq = 1;
+      if (trx_test == TRX_TEST_RX) {
+         return receive_test();
+      } else if (trx_test == TRX_TEST_TX) {
+         if (tx_len < 32) {
+            printf("specify a packet length greater than 32 with -l\n");
+            return -1;
+         }
+         return transmit_test(tx_count, tx_mod, tx_len);
+      }
    }
 
    netlink_sock = nl_socket_alloc();
