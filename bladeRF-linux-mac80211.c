@@ -312,7 +312,10 @@ int config_bladeRF(char *dev_str) {
    const int num_transfers = 16;
    const int stream_timeout = 10000000;
 
-   bladerf_sample_rate sample_rate = 20 * 1000 * 1000;
+#define TWENTY_MHZ (20 * 1000 * 1000)
+   bladerf_sample_rate sample_rate = TWENTY_MHZ;
+   bladerf_bandwidth   req_bw, actual_bw;
+   req_bw = TWENTY_MHZ;
 
 
    printf("Opening bladeRF with dev_str=%s\n", dev_str ? : "(NULL)");
@@ -382,6 +385,20 @@ int config_bladeRF(char *dev_str) {
    bladerf_set_bias_tee(bladeRF_dev, BLADERF_CHANNEL_RX(1), true);
    bladerf_set_bias_tee(bladeRF_dev, BLADERF_CHANNEL_TX(0), true);
    bladerf_set_bias_tee(bladeRF_dev, BLADERF_CHANNEL_TX(1), true);
+
+   status = bladerf_set_bandwidth(bladeRF_dev, BLADERF_CHANNEL_RX(0), req_bw, &actual_bw);
+   if (status != 0) {
+      printf("Could not set RX bandwidth, error=%d\n", status);
+      return status;
+   }
+   printf("RX bandwidth set to %d Hz\n", actual_bw);
+
+   status = bladerf_set_bandwidth(bladeRF_dev, BLADERF_CHANNEL_TX(0), req_bw, &actual_bw);
+   if (status != 0) {
+      printf("Could not set TX bandwidth, error=%d\n", status);
+      return status;
+   }
+   printf("TX bandwidth set to %d Hz\n", actual_bw);
 
 
    return 0;
