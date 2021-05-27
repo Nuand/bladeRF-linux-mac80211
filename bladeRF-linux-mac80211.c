@@ -545,7 +545,7 @@ int main(int argc, char *argv[])
    int tx_mod = 0;
    int tx_count = 100;
    int tx_len = 200;
-   char cmd;
+   int cmd;
 
    pthread_mutex_init(&log_mutex, NULL);
    struct bladerf_version ver;
