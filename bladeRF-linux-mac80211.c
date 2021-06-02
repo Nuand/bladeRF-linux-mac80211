@@ -34,6 +34,7 @@ struct bladerf *bladeRF_dev;
 unsigned int local_freq = 0;
 unsigned int force_freq = 0;
 unsigned int updated_freq = 0;
+unsigned int half_rate_only = 0;
 
 bool debug_mode = 1;
 
@@ -75,6 +76,15 @@ int bladerf_tx_frame(uint8_t *data, int len, int modulation, uint64_t cookie) {
     //printf("PING\n");
 
     bwh_t->len = len;
+
+    if (half_rate_only) {
+       if (modulation == 1 || modulation == 3) {
+          modulation--;
+       } else if (modulation > 4) {
+          modulation = 4;
+       }
+    }
+
     bwh_t->modulation = modulation;
     bwh_t->bandwidth = 2;
     bwh_t->cookie = cookie;
@@ -559,7 +569,7 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:vh"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:vhH"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
@@ -576,9 +586,12 @@ int main(int argc, char *argv[])
          tx_mod = atol(optarg);
       } else if (cmd == 'v') {
          debug_mode = 1;
+      } else if (cmd == 'H') {
+         half_rate_only = 1;
+         printf("Overriding rate selection to half rates\n");
       } else if (cmd == 'h') {
          fprintf(stderr,
-               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-t <tx test modulation>] [-c count] [-l length] [-v]\n"
+               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-H] [-r] [-t <tx test modulation>] [-c count] [-l length] [-v]\n"
                "\n"
                "\t\n"
                "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
