@@ -35,6 +35,7 @@ unsigned int local_freq = 0;
 unsigned int force_freq = 0;
 unsigned int updated_freq = 0;
 unsigned int half_rate_only = 0;
+int tx_gain = 0;
 
 bool debug_mode = 1;
 
@@ -390,7 +391,7 @@ int config_bladeRF(char *dev_str) {
       printf("Could not enable RX module, error=%d\n", status);
       return status;
    }
-   bladerf_set_gain_stage(bladeRF_dev, BLADERF_CHANNEL_TX(0), "dsa", 0);
+   bladerf_set_gain_stage(bladeRF_dev, BLADERF_CHANNEL_TX(0), "dsa", tx_gain);
    bladerf_set_bias_tee(bladeRF_dev, BLADERF_CHANNEL_RX(0), true);
    bladerf_set_bias_tee(bladeRF_dev, BLADERF_CHANNEL_RX(1), true);
    bladerf_set_bias_tee(bladeRF_dev, BLADERF_CHANNEL_TX(0), true);
@@ -555,7 +556,7 @@ int main(int argc, char *argv[])
    int tx_mod = 0;
    int tx_count = 100;
    int tx_len = 200;
-   char cmd;
+   int cmd;
 
    pthread_mutex_init(&log_mutex, NULL);
    struct bladerf_version ver;
@@ -569,7 +570,7 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:vhH"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:g:vhH"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
@@ -584,6 +585,9 @@ int main(int argc, char *argv[])
       } else if (cmd == 't') {
          trx_test = TRX_TEST_TX;
          tx_mod = atol(optarg);
+      } else if (cmd == 'g') {
+         tx_gain = atol(optarg);
+         printf("Setting DSA gain to %d\n", tx_gain);
       } else if (cmd == 'v') {
          debug_mode = 1;
       } else if (cmd == 'H') {
@@ -591,11 +595,12 @@ int main(int argc, char *argv[])
          printf("Overriding rate selection to half rates\n");
       } else if (cmd == 'h') {
          fprintf(stderr,
-               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-H] [-r] [-t <tx test modulation>] [-c count] [-l length] [-v]\n"
+               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-H] [-r] [-t <tx test modulation>] [-c count] [-l length] [-v] [-g tx_dsa_gain]\n"
                "\n"
                "\t\n"
                "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
                "\tfrequency, center frequency expressed in MHz\n"
+               "\ttx_dsa_gain, maximum gain occurs at `0', values are in dB\n"
          );
          return -1;
 
