@@ -32,10 +32,13 @@ pthread_mutex_t log_mutex;
 
 struct bladerf *bladeRF_dev;
 unsigned int local_freq = 0;
+unsigned int local_tx_freq = 0;
 unsigned int force_freq = 0;
 unsigned int updated_freq = 0;
 unsigned int half_rate_only = 0;
 int tx_gain = 0;
+int disable_agc = 0;
+int rx_gain = 0;
 
 bool debug_mode = 1;
 
@@ -284,6 +287,7 @@ int rx_frame(struct nl_sock *netlink_sock, int netlink_family, uint8_t *ptr, int
 }
 
 int set_new_frequency(unsigned long freq) {
+   unsigned long tx_freq;
    int status = 0;
 
    if (force_freq)
@@ -305,11 +309,18 @@ int set_new_frequency(unsigned long freq) {
       return status;
    }
 
-   status = bladerf_set_frequency(bladeRF_dev, BLADERF_CHANNEL_TX(0), freq * 1000UL * 1000UL);
+   if (local_tx_freq) {
+      tx_freq = local_tx_freq;
+   } else {
+      tx_freq = freq;
+   }
+   status = bladerf_set_frequency(bladeRF_dev, BLADERF_CHANNEL_TX(0), tx_freq  * 1000UL * 1000UL);
    if (status != 0) {
-      printf("Could not set TX frequency to freq=%luMHz, error=%d", freq, status);
+      printf("Could not set TX frequency to freq=%luMHz, error=%d", tx_freq, status);
       return status;
    }
+
+   printf("Set RX to %luMHz and TX to %luMHz\n", freq, tx_freq);
 
    local_freq = freq;
 
@@ -379,6 +390,21 @@ int config_bladeRF(char *dev_str) {
       return status;
    }
    
+   if (disable_agc) {
+      if (debug_mode) {
+         printf("Disabling AGC and setting RX gain to %d\n", rx_gain);
+      }
+      status = bladerf_set_gain_mode(bladeRF_dev, BLADERF_CHANNEL_RX(0), BLADERF_GAIN_MGC);
+      if (status != 0) {
+         printf("Could not disable AGC and set RX gain mode to manual, error=%d\n", status);
+         return status;
+      }
+      status = bladerf_set_gain(bladeRF_dev, BLADERF_CHANNEL_RX(0), rx_gain);
+      if (status != 0) {
+         printf("Could not set manual RX gain, error=%d\n", status);
+         return status;
+      }
+   }
 
    status = bladerf_enable_module(bladeRF_dev, BLADERF_MODULE_TX, true);
    if (status != 0) {
@@ -549,6 +575,7 @@ int main(int argc, char *argv[])
    struct nl_cb *netlink_cb = NULL;
    void *ret_ptr = NULL;
    unsigned long freq = 0;
+   unsigned long tx_freq = 0;
    int trx_test = 0;
 #define TRX_TEST_NONE 0
 #define TRX_TEST_RX   1
@@ -570,12 +597,15 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:g:vhH"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:vhH"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
          freq = atol(optarg);
-         printf("Overriding frequency to %luMHz\n", freq);
+         printf("Overriding RX/TX frequency to %luMHz\n", freq);
+      } else if (cmd == 's') {
+         local_tx_freq = atol(optarg);
+         printf("Overriding TX frequency to %luMHz\n", freq);
       } else if (cmd == 'r') {
          trx_test = TRX_TEST_RX;
       } else if (cmd == 'c') {
@@ -585,9 +615,13 @@ int main(int argc, char *argv[])
       } else if (cmd == 't') {
          trx_test = TRX_TEST_TX;
          tx_mod = atol(optarg);
+      } else if (cmd == 'a') {
+         disable_agc = 1;
+         rx_gain = atoi(optarg);
+         printf("Overriding AGC and setting RX gain to %d\n", rx_gain);
       } else if (cmd == 'g') {
          tx_gain = atol(optarg);
-         printf("Setting DSA gain to %d\n", tx_gain);
+         printf("Overriding DSA gain to %d\n", tx_gain);
       } else if (cmd == 'v') {
          debug_mode = 1;
       } else if (cmd == 'H') {
@@ -595,12 +629,14 @@ int main(int argc, char *argv[])
          printf("Overriding rate selection to half rates\n");
       } else if (cmd == 'h') {
          fprintf(stderr,
-               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-H] [-r] [-t <tx test modulation>] [-c count] [-l length] [-v] [-g tx_dsa_gain]\n"
+               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-s TX_frequency] [-H] [-r] [-t <tx test modulation>] [-c count] [-l length] [-v] [-a RX_gain] [-g tx_dsa_gain]\n"
                "\n"
                "\t\n"
                "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
                "\tfrequency, center frequency expressed in MHz\n"
                "\ttx_dsa_gain, maximum gain occurs at `0', values are in dB\n"
+               "\tRX_gain, setting this disables AGC, and sets the RX gain to the specified number\n"
+               "\tTX_frequency, specifies the split TX frequency\n"
          );
          return -1;
 
