@@ -22,6 +22,13 @@
 #include <netlink/genl/genl.h>
 #include <netlink/genl/ctrl.h>
 #include <linux/genetlink.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <libbladeRF.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -37,8 +44,11 @@ unsigned int force_freq = 0;
 unsigned int updated_freq = 0;
 unsigned int half_rate_only = 0;
 int tx_gain = 0;
+int tx_mod = 0;
 int disable_agc = 0;
 int rx_gain = 0;
+int tun_tap = 0;
+int tun_tap_fd = 0;
 
 bool debug_mode = 1;
 
@@ -57,6 +67,9 @@ struct tx_rate_info {
 
 int set_new_frequency(unsigned long freq);
 int rx_frame(struct nl_sock *netlink_sock, int netlink_family, uint8_t *ptr, int len, int mod);
+int start_mac80211(char *cmd);
+int start_tun_tap(char *cmd);
+
 
 unsigned int bytes_to_dwords(int bytes) {
     return (bytes + 3) / 4;
@@ -532,11 +545,17 @@ void *rx_thread(void *arg) {
          //pthread_mutex_unlock(&log_mutex);
       }
       
-      if (bwh_r->type != 1) {
-         tx_cb(netlink_sock, netlink_family, bwh_r);
-      }
-      if (bwh_r->type == 1) {
-         rx_frame(netlink_sock, netlink_family, data+16, bwh_r->len-4, bwh_r->modulation);
+      if (tun_tap) {
+         if (bwh_r->type == 1) {
+            write(tun_tap_fd, data+16, bwh_r->len - 4);
+         }
+      } else {
+         if (bwh_r->type != 1) {
+            tx_cb(netlink_sock, netlink_family, bwh_r);
+         }
+         if (bwh_r->type == 1) {
+            rx_frame(netlink_sock, netlink_family, data+16, bwh_r->len-4, bwh_r->modulation);
+         }
       }
 
    }
@@ -573,14 +592,12 @@ int main(int argc, char *argv[])
 {
    int status;
    struct nl_cb *netlink_cb = NULL;
-   void *ret_ptr = NULL;
    unsigned long freq = 0;
    unsigned long tx_freq = 0;
    int trx_test = 0;
 #define TRX_TEST_NONE 0
 #define TRX_TEST_RX   1
 #define TRX_TEST_TX   2
-   int tx_mod = 0;
    int tx_count = 100;
    int tx_len = 200;
    int cmd;
@@ -597,7 +614,7 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:vhH"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:vhHT"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
@@ -612,6 +629,8 @@ int main(int argc, char *argv[])
          tx_count = atol(optarg);
       } else if (cmd == 'l') {
          tx_len = atol(optarg);
+      } else if (cmd == 'm') {
+         tx_mod = atol(optarg);
       } else if (cmd == 't') {
          trx_test = TRX_TEST_TX;
          tx_mod = atol(optarg);
@@ -627,9 +646,12 @@ int main(int argc, char *argv[])
       } else if (cmd == 'H') {
          half_rate_only = 1;
          printf("Overriding rate selection to half rates\n");
+      } else if (cmd == 'T') {
+         tun_tap = 1;
       } else if (cmd == 'h') {
          fprintf(stderr,
-               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-s TX_frequency] [-H] [-r] [-t <tx test modulation>] [-c count] [-l length] [-v] [-a RX_gain] [-g tx_dsa_gain]\n"
+               "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-s TX_frequency] [-H] [-r] [-t <tx test modulation>]\n"
+               "                              [-m TX_mod] [-c count] [-l length] [-v] [-a RX_gain] [-g tx_dsa_gain] [-T]\n"
                "\n"
                "\t\n"
                "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
@@ -637,6 +659,10 @@ int main(int argc, char *argv[])
                "\ttx_dsa_gain, maximum gain occurs at `0', values are in dB\n"
                "\tRX_gain, setting this disables AGC, and sets the RX gain to the specified number\n"
                "\tTX_frequency, specifies the split TX frequency\n"
+               "\tTX_mod, override TX modulation\n"
+               "\t-H selects half rates\n"
+               "\t-v enables verbose mode\n"
+               "\t-T enable TUN/TAP\n"
          );
          return -1;
 
@@ -672,6 +698,17 @@ int main(int argc, char *argv[])
       printf("Could not set frequency\n");
       return -1;
    }
+   if (tun_tap) {
+      return start_tun_tap(argv[0]);
+   } else {
+      return start_mac80211(argv[0]);
+   }
+}
+
+int start_mac80211(char *cmd) {
+   int status;
+   struct nl_cb *netlink_cb = NULL;
+   void *ret_ptr = NULL;
 
    netlink_sock = nl_socket_alloc();
    if (!netlink_sock) {
@@ -737,11 +774,64 @@ int main(int argc, char *argv[])
       status = nl_recvmsgs(netlink_sock, netlink_cb);
       if (status == -NLE_PERM) {
          printf("attain CAP_NET_ADMIN via `sudo setcap cap_net_admin+eip %s` "
-                "or start again with sudo\n", argv[0]);
+                "or start again with sudo\n", cmd);
          return -1;
       }
       if (status != NLE_SUCCESS && status != -NLE_SEQ_MISMATCH && status != -7 && status != -8) {
          printf("nl_recvmsgs() failed with error=%d\n", status);
+         return -1;
+      }
+   }
+
+   return 0;
+}
+
+int start_tun_tap(char *cmd) {
+   int status;
+   struct ifreq ifreq;
+   uint8_t payload_data[4096];
+   pthread_t rx_th;
+
+   tun_tap_fd = open("/dev/net/tun", O_RDWR);
+   if (tun_tap == -EPERM) {
+         printf("attain CAP_NET_ADMIN via `sudo setcap cap_net_admin+eip %s` "
+                "or start again with sudo\n", cmd);
+         return -1;
+   } else if (tun_tap == -ENOENT) {
+         printf("start_tun_tap() failed with error=%d\n", netlink_family);
+         printf("perhaps tun.ko isn't loaded?\n");
+   }
+
+   memset(&ifreq, 0, sizeof(ifreq));
+   ifreq.ifr_flags = IFF_TAP | IFF_NO_PI;
+   strncpy(ifreq.ifr_name, "bladelan", IFNAMSIZ);
+   status = ioctl(tun_tap_fd, TUNSETIFF, &ifreq);
+
+   if (status) {
+      printf("could not ioctl(TUNSETIFF), error=%d\n", status);
+      close(tun_tap_fd);
+      return -1;
+   }
+
+   printf("Registered `%s' TAP interface\n", ifreq.ifr_name);
+
+   pthread_create(&rx_th, NULL, rx_thread, NULL);
+
+   while(1) {
+      status = read(tun_tap_fd, payload_data, 4096);
+      if (status < 0) {
+         return -1;
+      }
+
+      if (debug_mode) {
+         printf("TAP TX frame:\n");
+         printf("\tMod: %d\n", tx_mod);
+         dump_packet(payload_data, status);
+         printf("\n\n");
+      }
+
+      status = bladerf_tx_frame(payload_data, status, tx_mod, 0);
+      if (status < 0) {
          return -1;
       }
    }
