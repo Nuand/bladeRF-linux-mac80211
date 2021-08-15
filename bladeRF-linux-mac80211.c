@@ -661,6 +661,18 @@ int main(int argc, char *argv[])
       }
    }
 
+   if (freq) {
+      status = set_new_frequency(freq);
+      force_freq = 1;
+   } else {
+      status = set_new_frequency(2412);
+   }
+
+   if (status) {
+      printf("Could not set frequency\n");
+      return -1;
+   }
+
    netlink_sock = nl_socket_alloc();
    if (!netlink_sock) {
       printf("nl_socket_alloc() failed\n");
@@ -703,18 +715,6 @@ int main(int argc, char *argv[])
    ret_ptr = genlmsg_put(netlink_msg, NL_AUTO_PORT, NL_AUTO_SEQ, netlink_family, 0, 0, /* REGISTER */ 1, 0);
    if (!ret_ptr) {
       printf("genlmsg_put() failed\n");
-      return -1;
-   }
-
-   if (freq) {
-      status = set_new_frequency(freq);
-      force_freq = 1;
-   } else {
-      status = set_new_frequency(2412);
-   }
-
-   if (status) {
-      printf("Could not set frequency\n");
       return -1;
    }
 
