@@ -614,7 +614,7 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:vhHT"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:m:vhHT"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
