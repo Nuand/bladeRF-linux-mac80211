@@ -614,7 +614,7 @@ int main(int argc, char *argv[])
    }
 
    char *dev_str = NULL;
-   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:m:vhHT"))) {
+   while (-1 != ( cmd = getopt(argc, argv, "rt:l:c:d:f:s:a:g:m:vVhHT"))) {
       if (cmd == 'd') {
          dev_str = strdup(optarg);
       } else if (cmd == 'f') {
@@ -642,7 +642,9 @@ int main(int argc, char *argv[])
          tx_gain = atol(optarg);
          printf("Overriding DSA gain to %d\n", tx_gain);
       } else if (cmd == 'v') {
-         debug_mode = 1;
+         debug_mode = 10;
+      } else if (cmd == 'V') {
+         debug_mode = 0;
       } else if (cmd == 'H') {
          half_rate_only = 1;
          printf("Overriding rate selection to half rates\n");
@@ -651,7 +653,7 @@ int main(int argc, char *argv[])
       } else if (cmd == 'h') {
          fprintf(stderr,
                "usage: bladeRF-linux-mac80211 [-d device_string] [-f frequency] [-s TX_frequency] [-H] [-r] [-t <tx test modulation>]\n"
-               "                              [-m TX_mod] [-c count] [-l length] [-v] [-a RX_gain] [-g tx_dsa_gain] [-T]\n"
+               "                              [-m TX_mod] [-c count] [-l length] [-v] [-V] [-a RX_gain] [-g tx_dsa_gain] [-T]\n"
                "\n"
                "\t\n"
                "\tdevice_string, uses the standard libbladeRF bladerf_open() syntax\n"
@@ -661,7 +663,8 @@ int main(int argc, char *argv[])
                "\tTX_frequency, specifies the split TX frequency\n"
                "\tTX_mod, override TX modulation\n"
                "\t-H selects half rates\n"
-               "\t-v enables verbose mode\n"
+               "\t-v enables very verbose mode\n"
+               "\t-V disables verbose mode entirely\n"
                "\t-T enable TUN/TAP\n"
          );
          return -1;
