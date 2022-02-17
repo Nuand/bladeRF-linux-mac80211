@@ -7,3 +7,8 @@ bladeRF-linux-mac80211: bladeRF-linux-mac80211.c
 
 clean:
 	rm bladeRF-linux-mac80211
+
+install:
+	cp bladeRF-linux-mac80211 /usr/local/bin
+	chmod a+x /usr/local/bin/bladeRF-linux-mac80211
+	setcap cap_net_admin+eip /usr/local/bin/bladeRF-linux-mac80211
